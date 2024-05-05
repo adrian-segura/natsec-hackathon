@@ -1,0 +1,187 @@
+---
+title: "NatSec_Hackathon_Workspace"
+format: html
+editor: visual
+---
+
+# Libraries
+
+```{r}
+library(shiny)
+library(tidyverse)    # data wrangling and graphics
+library(lubridate)    # for working with dates
+library(sf)           # for working with geospatial vector-data
+library(leaflet)      # web interactive maps
+library(plotly)       # web interactive graphics
+library(tidytext)     # for text mining
+library(DT)           # to work with HTML table widgets
+library(stringr)
+library(udpipe)
+library(textrank)
+```
+
+```{r}
+bing = read_csv("bing.csv", col_types = "cc")
+nrc = read_csv("nrc.csv", col_types = "cc")
+loughran = read_csv("loughran.csv", col_types = "cc")
+```
+
+
+# Import Data and Clean
+```{r}
+ dat = read_csv(
+   file = "primer_hackathon_data_control.csv", 
+   col_types = cols(
+     Source = col_character(),
+     Date = col_character(),
+     URL = col_character(),
+     Title = col_character(),
+     Content = col_character()
+   ))
+```
+
+```{r}
+dat = dat |>
+  select(c(Source, Date, URL, Title, Content))
+head(dat)
+```
+
+
+```{r}
+clean_months = dat$Date |>
+  str_extract('\\d\\d\\d\\d-\\d\\d-\\d\\d')
+dat$Date = clean_months
+
+dat = dat |>
+ mutate(year = year(Date), month = month(Date), day = day(Date))
+
+head(dat)
+```
+```{r}
+source_list = dat |>
+  select(Source)
+
+valid_sources = c(slice(arrange(unique(source_list)), 1:6))
+
+valid_sources
+```
+```{r}
+dat <- dat %>% filter(Source %in% valid_sources$Source)
+```
+
+
+
+# Country's News Source Sentiment Analysis
+```{r}
+source <- "CNN" #customizable news source field
+
+specific_source = dat |>
+#  mutate(valid_source = str_detect(dat$Source, "CNN Wire")) |>
+#  filter(valid_source == TRUE) |>
+  filter(Source == source) |>
+  filter(Content != is.na(Content)) |>
+  select(Source, Content, Date) |>
+  arrange(Source)
+
+head(specific_source)
+
+```
+```{r}
+sentiments = bing #customizable sentiment dictionary
+
+input_article = data.frame( 
+  Content = specific_source$Content,
+  Date = as.Date(specific_source$Date)
+  )
+
+input_tokens <- input_article |>
+  mutate(linenumber = Date) |>
+  unnest_tokens(output = word, input = Content)
+
+input_sentiments <- input_tokens |>
+  inner_join(sentiments, by = "word")
+
+input_sections <- input_sentiments |>
+  count(index = linenumber, sentiment)
+
+article_sentim_flow <- input_sections |>
+  pivot_wider(names_from = sentiment, values_from = n, values_fill = 0) |>
+  mutate(sentiment = positive - negative)
+```
+
+```{r}
+ggplot(data = article_sentim_flow,
+       aes(x = index, y = sentiment, fill = factor(sign(sentiment)))) +
+  geom_col(show.legend = FALSE) +
+  scale_x_date(limits = as.Date(c("2023-11-01", "2023-12-31"))) # customizable date range preference
+```
+# Highest Growing Subjects
+
+```{r}
+## First step: Take the Spanish udpipe model and annotate the text. Note: this takes about 3 minutes
+ud_model <- udpipe_download_model(language = "english")
+ud_model <- udpipe_load_model(ud_model$file_model)
+```
+
+```{r}
+specific_time = specific_source |>
+  filter(Date >= as.Date("2023-03-01") & Date <= as.Date("2023-03-30"))
+
+```
+
+```{r}
+highest_growing_subjects <- udpipe_annotate(ud_model, x = specific_time$Content, tagger = "default", parser = "none")
+highest_growing_subjects <- as.data.frame(highest_growing_subjects)
+```
+
+```{r}
+library(lattice)
+stats <- subset(highest_growing_subjects, upos %in% c("PROPN", "ADJ"))
+stats <- txt_freq(x = stats$lemma)
+stats$key <- factor(stats$key, levels = rev(stats$key))
+```
+
+```{r}
+
+#barchart(key ~ freq, data = stats, col = "cadetblue", main = "Most occurring nouns", xlab = "Freq")
+
+banned_keywords = c("year", "people", "time", "week", "day", "month", "country", "company", "most")
+
+stats <- stats |>
+  filter(key %in% topics) %>%
+  filter(!key %in% banned_keywords)
+
+ggplot(data = head(stats,30)) +
+  geom_col(aes(x = freq, y = key), fill = 'cadetblue')
+```
+
+```{r}
+stats |>
+  select(key, freq)
+```
+```{r}
+ topics = read_csv(
+   file = "PolData.csv", 
+   col_types = cols(
+     topics = col_character(),
+   ))
+topics <- topics |> select(topics)
+
+topics <- unnest_tokens(tbl = topics, output = words, input = topics)
+
+topics <- c(arrange(unique(topics)))
+
+countries = data.frame(
+  countries = readLines("countries")
+  )
+
+topics <- data.frame(topics)
+#topics$words
+
+countries <- data.frame(countries)
+#countries$countries
+
+topics <- c(topics$words, countries$countries)
+topics
+```
+
