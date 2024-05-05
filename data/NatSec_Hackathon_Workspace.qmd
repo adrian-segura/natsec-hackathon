@@ -18,6 +18,8 @@ library(DT)           # to work with HTML table widgets
 library(stringr)
 library(udpipe)
 library(textrank)
+library(lattice)
+library(future.apply)
 ```
 
 ```{r}
@@ -26,8 +28,8 @@ nrc = read_csv("nrc.csv", col_types = "cc")
 loughran = read_csv("loughran.csv", col_types = "cc")
 ```
 
-
 # Import Data and Clean
+
 ```{r}
  dat = read_csv(
    file = "primer_hackathon_data_control.csv", 
@@ -46,7 +48,6 @@ dat = dat |>
 head(dat)
 ```
 
-
 ```{r}
 clean_months = dat$Date |>
   str_extract('\\d\\d\\d\\d-\\d\\d-\\d\\d')
@@ -57,6 +58,7 @@ dat = dat |>
 
 head(dat)
 ```
+
 ```{r}
 source_list = dat |>
   select(Source)
@@ -65,13 +67,13 @@ valid_sources = c(slice(arrange(unique(source_list)), 1:6))
 
 valid_sources
 ```
+
 ```{r}
 dat <- dat %>% filter(Source %in% valid_sources$Source)
 ```
 
-
-
 # Country's News Source Sentiment Analysis
+
 ```{r}
 source <- "CNN" #customizable news source field
 
@@ -86,6 +88,7 @@ specific_source = dat |>
 head(specific_source)
 
 ```
+
 ```{r}
 sentiments = bing #customizable sentiment dictionary
 
@@ -115,6 +118,7 @@ ggplot(data = article_sentim_flow,
   geom_col(show.legend = FALSE) +
   scale_x_date(limits = as.Date(c("2023-11-01", "2023-12-31"))) # customizable date range preference
 ```
+
 # Highest Growing Subjects
 
 ```{r}
@@ -124,41 +128,22 @@ ud_model <- udpipe_load_model(ud_model$file_model)
 ```
 
 ```{r}
-specific_time = specific_source |>
-  filter(Date >= as.Date("2023-03-01") & Date <= as.Date("2023-03-30"))
+specific_time = dat |>
+  select(c(Source, Date, Content)) |>
+  filter(Date >= as.Date("2023-12-01") & Date <= as.Date("2023-12-30"))
 
 ```
 
 ```{r}
-highest_growing_subjects <- udpipe_annotate(ud_model, x = specific_time$Content, tagger = "default", parser = "none")
-highest_growing_subjects <- as.data.frame(highest_growing_subjects)
+highest_growing_subjects <- as.data.frame(udpipe_annotate(ud_model, x = specific_time$Content, tagger = "default", parser = "none"))
 ```
 
 ```{r}
-library(lattice)
 stats <- subset(highest_growing_subjects, upos %in% c("PROPN", "ADJ"))
 stats <- txt_freq(x = stats$lemma)
 stats$key <- factor(stats$key, levels = rev(stats$key))
 ```
 
-```{r}
-
-#barchart(key ~ freq, data = stats, col = "cadetblue", main = "Most occurring nouns", xlab = "Freq")
-
-banned_keywords = c("year", "people", "time", "week", "day", "month", "country", "company", "most")
-
-stats <- stats |>
-  filter(key %in% topics) %>%
-  filter(!key %in% banned_keywords)
-
-ggplot(data = head(stats,30)) +
-  geom_col(aes(x = freq, y = key), fill = 'cadetblue')
-```
-
-```{r}
-stats |>
-  select(key, freq)
-```
 ```{r}
  topics = read_csv(
    file = "PolData.csv", 
@@ -182,6 +167,29 @@ countries <- data.frame(countries)
 #countries$countries
 
 topics <- c(topics$words, countries$countries)
-topics
+#topics
+```
+
+```{r}
+
+#barchart(key ~ freq, data = stats, col = "cadetblue", main = "Most occurring nouns", xlab = "Freq")
+
+banned_keywords = c("year", "people", "time", "week", "day", "month", "country", "company", "most", "old")
+
+stats <- stats |>
+  filter(key %in% topics) %>%
+  filter(!key %in% banned_keywords)
+
+ggplot(data = head(stats,30)) +
+  geom_col(aes(x = freq, y = key), fill = 'cadetblue')
+```
+
+
+
+# Selected Country's Topics, by popularity
+```{r}
+stats |>
+  select(key, freq) |>
+  head(10)
 ```
 
